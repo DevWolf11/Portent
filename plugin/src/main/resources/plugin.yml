@@ -1,0 +1,23 @@
+name: Portent
+version: 0.2.0
+main: dev.portent.plugin.PortentPlugin
+description: Tells you which of your plugins will break before you upgrade the server.
+author: portent
+website: https://github.com/DevWolf11/portent
+
+# 1.13 is the oldest API this needs. The plugin deliberately uses a tiny, long-stable slice of
+# Bukkit so it runs on the old server an admin is trying to move off, which is the whole point.
+api-version: "1.13"
+folia-supported: true
+
+commands:
+  portent:
+    description: Check installed plugins against a target Minecraft version.
+    usage: /portent check <version>
+    permission: portent.use
+    aliases: [pt]
+
+permissions:
+  portent.use:
+    description: Allows running Portent checks.
+    default: op

@@ -38,30 +38,44 @@ traces until something works — finds these one at a time, at the worst moment.
 
 ## Getting started
 
-Portent is a command-line tool you run on your own computer, not a plugin you put
-in your server's `plugins` folder. It reads plugin jars; it never runs them, and it
-never touches your server.
+Portent comes two ways. Both use the same engine; pick whichever suits you.
 
-You need Java 25 — the same version Minecraft 26.1 requires, so if you are upgrading
-to 26.1 you already have it. Check with `java -version`.
+### As a server plugin
 
-Build the single runnable jar:
+Drop `Portent.jar` into your server's `plugins` folder, restart, and ask it about the
+version you are considering:
 
 ```
-./gradlew jar
+/portent check 26.1.2
 ```
 
-That produces `build/libs/portent.jar`. Everything is inside it, so you can copy it
-anywhere and run it with nothing else installed:
+It downloads the API for that version, checks every plugin you have installed, prints
+a verdict per plugin in the console, and writes the full report to
+`plugins/Portent/report-26.1.2.txt`. Nothing else in your plugins folder is touched.
+
+Runs on Java 17 and up, so it works on the old server you are trying to move off —
+which is the one with the most to tell you.
+
+### As a command-line tool
+
+If you would rather not install anything on the server, or you want this in CI:
 
 ```
 java -jar portent.jar index --minecraft-version 26.1.2 --out 26.1.json
 java -jar portent.jar scan --plugins /path/to/your/plugins --index 26.1.json
 ```
 
-The first command downloads the API for the version you are moving to and builds an
-index of it — do this once per target version. The second reads your plugins folder
-and prints the report. Nothing is written to your plugins folder.
+The first command builds an index of the target version — do this once per version.
+The second reads a plugins folder and prints the report.
+
+### Building both
+
+```
+./gradlew build
+```
+
+produces `cli/build/libs/portent.jar` and `plugin/build/libs/Portent.jar`. Everything
+is bundled inside each, so neither needs anything installed beyond a JDK.
 
 `index` fetches `paper-api` and the dependencies its type hierarchies need, caching
 them under `~/.portent/cache` so later runs work offline.
@@ -171,6 +185,18 @@ scanning and reporting take local paths. The test suite never touches the networ
   path runs. Suppressions exist for this.
 - **Reflection.** A plugin that reaches the API through `Class.forName` is invisible.
 - **Runtime libraries.** `libraries` in `paper-plugin.yml` is parsed but not analysed.
+
+## Layout
+
+| Module | What it is |
+|---|---|
+| `core` | The engine: indexing, scanning, resolution, reporting, fetching. Java 17. |
+| `cli` | The command-line front end. Produces `portent.jar`. |
+| `plugin` | The Bukkit/Paper front end. Produces `Portent.jar`. |
+
+The plugin uses six Bukkit members, all stable since the early Bukkit days, and a test
+pins that surface using Portent's own scanner — so reaching for newer API fails the
+build rather than someone's server.
 
 ## Development
 
