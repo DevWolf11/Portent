@@ -1,1 +1,1 @@
-rootProject.name = "plugin-doctor"
+rootProject.name = "portent"

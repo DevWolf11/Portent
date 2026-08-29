@@ -2,7 +2,7 @@ plugins {
     application
 }
 
-group = "dev.plugindoctor"
+group = "dev.portent"
 version = "0.1.0"
 
 repositories {
@@ -29,7 +29,7 @@ dependencies {
 }
 
 application {
-    mainClass = "dev.plugindoctor.PluginDoctor"
+    mainClass = "dev.portent.Portent"
 }
 
 tasks.test {

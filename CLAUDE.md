@@ -1,4 +1,4 @@
-# plugin-doctor
+# portent
 
 Static analysis CLI that predicts which Bukkit/Paper plugins will break on a target
 Minecraft version, before the admin upgrades. Input: a plugins folder + a target API
