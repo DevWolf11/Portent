@@ -38,8 +38,9 @@ public record Pom(
         }
     }
 
-    public static Pom parse(String xml) {
-        String project = xml;
+    public static Pom parse(String rawXml) {
+        // A commented-out dependency is not a dependency.
+        String project = Xml.withoutComments(rawXml);
         List<String> parents = Xml.blocks(project, "parent");
         MavenCoordinate parent = parents.isEmpty() ? null : coordinateOf(parents.getFirst(), null);
 
@@ -53,8 +54,10 @@ public record Pom(
             version = parent.version();
         }
 
+        // Only project-level properties. Plugins and profiles carry their own <properties>
+        // blocks, and letting those through would put stray names into ${...} substitution.
         Map<String, String> properties = new LinkedHashMap<>();
-        for (String block : Xml.blocks(project, "properties")) {
+        for (String block : Xml.blocks(stripBlocks(project), "properties")) {
             for (String line : block.split("\n")) {
                 String trimmed = line.trim();
                 if (trimmed.startsWith("<") && trimmed.contains("</")) {
@@ -71,7 +74,19 @@ public record Pom(
         for (String block : Xml.blocks(project, "dependencyManagement")) {
             managed.addAll(dependenciesIn(block));
         }
-        List<Dependency> direct = new ArrayList<>(dependenciesIn(withoutManagement(project)));
+        // <build> holds Maven plugins, which carry their own <dependencies> for the build only:
+        // paper-api's POM puts ecj and plexus-compiler-eclipse there. <profiles> are conditional
+        // and <reporting> is documentation. None of them are on a consumer's classpath, and
+        // fetching them would download large irrelevant jars into the index.
+        List<Dependency> direct =
+                new ArrayList<>(
+                        dependenciesIn(
+                                Xml.withoutBlocks(
+                                        project,
+                                        "dependencyManagement",
+                                        "build",
+                                        "profiles",
+                                        "reporting")));
 
         MavenCoordinate self =
                 groupId != null && artifactId != null && version != null
@@ -113,21 +128,14 @@ public record Pom(
 
     /** Removes nested blocks so a top-level lookup does not pick up a dependency's groupId. */
     private static String stripBlocks(String xml) {
-        String out = xml;
-        for (String tag : new String[] {"parent", "dependencies", "dependencyManagement", "build",
-                "profiles", "reporting", "distributionManagement"}) {
-            for (String block : Xml.blocks(out, tag)) {
-                out = out.replace(block, "");
-            }
-        }
-        return out;
-    }
-
-    private static String withoutManagement(String xml) {
-        String out = xml;
-        for (String block : Xml.blocks(xml, "dependencyManagement")) {
-            out = out.replace(block, "");
-        }
-        return out;
+        return Xml.withoutBlocks(
+                xml,
+                "parent",
+                "dependencies",
+                "dependencyManagement",
+                "build",
+                "profiles",
+                "reporting",
+                "distributionManagement");
     }
 }

@@ -15,6 +15,55 @@ public final class Xml {
 
     private Xml() {}
 
+    /**
+     * Removes comments, so a commented-out block is not read as live configuration. Real POMs
+     * carry plenty of them.
+     */
+    public static String withoutComments(String xml) {
+        if (xml == null || !xml.contains("<!--")) {
+            return xml;
+        }
+        StringBuilder out = new StringBuilder(xml.length());
+        int cursor = 0;
+        while (true) {
+            int start = xml.indexOf("<!--", cursor);
+            if (start < 0) {
+                out.append(xml, cursor, xml.length());
+                return out.toString();
+            }
+            out.append(xml, cursor, start);
+            int end = xml.indexOf("-->", start);
+            if (end < 0) {
+                return out.toString();
+            }
+            cursor = end + 3;
+        }
+    }
+
+    /** Removes every {@code <tag>...</tag>} block, outermost occurrences included. */
+    public static String withoutBlocks(String xml, String... tags) {
+        String out = xml;
+        for (String tag : tags) {
+            while (true) {
+                int start = indexOfOpen(out, tag, 0);
+                if (start < 0) {
+                    break;
+                }
+                int close = out.indexOf("</" + tag + ">", start);
+                if (close < 0) {
+                    int selfClose = out.indexOf('>', start);
+                    if (selfClose < 0) {
+                        break;
+                    }
+                    out = out.substring(0, start) + out.substring(selfClose + 1);
+                    continue;
+                }
+                out = out.substring(0, start) + out.substring(close + tag.length() + 3);
+            }
+        }
+        return out;
+    }
+
     /** The text of the first {@code <tag>} at any depth, or null. */
     public static String text(String xml, String tag) {
         int start = indexOfOpen(xml, tag, 0);
