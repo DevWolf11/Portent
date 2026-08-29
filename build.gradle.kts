@@ -32,6 +32,20 @@ application {
     mainClass = "dev.portent.Portent"
 }
 
+// A single runnable jar, so using Portent is `java -jar portent.jar` with nothing to install
+// beyond a JDK. The distribution scripts still exist for anyone who wants them.
+tasks.jar {
+    manifest {
+        attributes["Main-Class"] = "dev.portent.Portent"
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) }) {
+        // Signature files from dependencies make a merged jar unverifiable and refuse to load.
+        exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/MANIFEST.MF")
+    }
+    archiveFileName = "portent.jar"
+}
+
 tasks.test {
     useJUnitPlatform()
     testLogging {

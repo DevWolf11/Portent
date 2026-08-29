@@ -38,19 +38,30 @@ traces until something works — finds these one at a time, at the worst moment.
 
 ## Getting started
 
-Requires Java 25.
+Portent is a command-line tool you run on your own computer, not a plugin you put
+in your server's `plugins` folder. It reads plugin jars; it never runs them, and it
+never touches your server.
+
+You need Java 25 — the same version Minecraft 26.1 requires, so if you are upgrading
+to 26.1 you already have it. Check with `java -version`.
+
+Build the single runnable jar:
 
 ```
-./gradlew installDist
-export PATH="$PWD/build/install/portent/bin:$PATH"
+./gradlew jar
 ```
 
-Build an index for the version you are moving to, then scan your plugins:
+That produces `build/libs/portent.jar`. Everything is inside it, so you can copy it
+anywhere and run it with nothing else installed:
 
 ```
-portent index --minecraft-version 26.1.2 --out 26.1.json
-portent scan --plugins /srv/mc/plugins --index 26.1.json
+java -jar portent.jar index --minecraft-version 26.1.2 --out 26.1.json
+java -jar portent.jar scan --plugins /path/to/your/plugins --index 26.1.json
 ```
+
+The first command downloads the API for the version you are moving to and builds an
+index of it — do this once per target version. The second reads your plugins folder
+and prints the report. Nothing is written to your plugins folder.
 
 `index` fetches `paper-api` and the dependencies its type hierarchies need, caching
 them under `~/.portent/cache` so later runs work offline.
