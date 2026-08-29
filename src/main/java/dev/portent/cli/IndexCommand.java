@@ -3,7 +3,7 @@ package dev.portent.cli;
 import dev.portent.index.ApiIndex;
 import dev.portent.index.IndexBuilder;
 import dev.portent.index.IndexIo;
-import java.nio.file.Files;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
@@ -41,11 +41,13 @@ public final class IndexCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
-        if (!Files.isRegularFile(apiJar)) {
-            System.err.println("portent: no such API jar: " + apiJar);
+        ApiIndex index;
+        try {
+            index = IndexBuilder.fromJar(apiJar, minecraftVersion, javaVersion);
+        } catch (IOException e) {
+            System.err.println("portent: " + e.getMessage());
             return ExitCode.USAGE;
         }
-        ApiIndex index = IndexBuilder.fromJar(apiJar, minecraftVersion, javaVersion);
         IndexIo.write(index, out);
 
         System.out.printf(

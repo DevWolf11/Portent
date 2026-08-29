@@ -44,6 +44,8 @@ public final class IndexBuilder {
      */
     public static ApiIndex fromJar(Path apiJar, String minecraftVersion, int javaVersion)
             throws IOException {
+        JarCheck.require(apiJar);
+
         Map<String, TypeInfo> types = new TreeMap<>();
         int highestMajor = 0;
         String mavenVersion = null;
