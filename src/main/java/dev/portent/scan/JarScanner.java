@@ -2,6 +2,7 @@ package dev.portent.scan;
 
 import dev.portent.index.ApiIndex;
 import dev.portent.model.CallSite;
+import dev.portent.model.Finding;
 import dev.portent.model.PluginReport;
 import dev.portent.model.UnreadableClass;
 import java.io.IOException;
@@ -9,6 +10,7 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.zip.ZipEntry;
@@ -18,9 +20,21 @@ import java.util.zip.ZipFile;
 public final class JarScanner {
 
     private final PluginAnalyser analyser;
+    private final List<Suppression> suppressions;
+    private final Set<Suppression> used = new LinkedHashSet<>();
 
     public JarScanner(ApiIndex index) {
+        this(index, List.of());
+    }
+
+    public JarScanner(ApiIndex index, List<Suppression> suppressions) {
         this.analyser = new PluginAnalyser(index);
+        this.suppressions = suppressions == null ? List.of() : List.copyOf(suppressions);
+    }
+
+    /** Suppressions that never matched anything, so stale entries can be pruned. */
+    public List<Suppression> unusedSuppressions() {
+        return suppressions.stream().filter(s -> !used.contains(s)).toList();
     }
 
     public PluginReport scan(Path jar) {
@@ -71,8 +85,28 @@ public final class JarScanner {
                 unreadable.add(new UnreadableClass(label(entry), message(e)));
             }
         }
+        List<Finding> active = new ArrayList<>();
+        List<Finding> suppressed = new ArrayList<>();
+        for (Finding finding : analyser.findings(collector)) {
+            if (isSuppressed(descriptor.name(), fileName, finding)) {
+                suppressed.add(finding);
+            } else {
+                active.add(finding);
+            }
+        }
         return PluginReport.scanned(
-                fileName, descriptor, analyser.findings(collector), unreadable, classesScanned);
+                fileName, descriptor, active, suppressed, unreadable, classesScanned);
+    }
+
+    private boolean isSuppressed(String pluginName, String jarFileName, Finding finding) {
+        boolean matched = false;
+        for (Suppression suppression : suppressions) {
+            if (suppression.matches(pluginName, jarFileName, finding)) {
+                used.add(suppression);
+                matched = true;
+            }
+        }
+        return matched;
     }
 
     /** Findings that belong to a whole class rather than one instruction point here. */

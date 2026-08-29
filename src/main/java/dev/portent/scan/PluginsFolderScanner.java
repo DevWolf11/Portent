@@ -15,20 +15,33 @@ import java.util.stream.Stream;
 public final class PluginsFolderScanner {
 
     private final ApiIndex index;
+    private final List<Suppression> suppressions;
+    private List<Suppression> unusedSuppressions = List.of();
 
     public PluginsFolderScanner(ApiIndex index) {
+        this(index, List.of());
+    }
+
+    public PluginsFolderScanner(ApiIndex index, List<Suppression> suppressions) {
         this.index = index;
+        this.suppressions = suppressions == null ? List.of() : List.copyOf(suppressions);
+    }
+
+    /** Suppressions that matched nothing in this scan; stale entries worth pruning. */
+    public List<Suppression> unusedSuppressions() {
+        return unusedSuppressions;
     }
 
     public ScanReport scan(Path pluginsDirectory) throws IOException {
         if (!Files.isDirectory(pluginsDirectory)) {
             throw new IOException("not a directory: " + pluginsDirectory);
         }
-        JarScanner scanner = new JarScanner(index);
+        JarScanner scanner = new JarScanner(index, suppressions);
         List<PluginReport> reports = new ArrayList<>();
         for (Path jar : jarsIn(pluginsDirectory)) {
             reports.add(scanner.scan(jar));
         }
+        unusedSuppressions = scanner.unusedSuppressions();
         return new ScanReport(
                 pluginsDirectory.toString(),
                 index.source(),

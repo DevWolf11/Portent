@@ -10,6 +10,12 @@ public enum FindingType {
     MISSING_FIELD(Severity.ERROR),
 
     /**
+     * A referenced Bukkit/Paper type is absent from the target index, in a package the index
+     * otherwise covers. Reported instead of the members of that type, not alongside them.
+     */
+    MISSING_CLASS(Severity.ERROR),
+
+    /**
      * A reference to a version-stamped internals package — {@code org/bukkit/craftbukkit/v1_*} or
      * the pre-1.17 {@code net/minecraft/server/v1_*} layout. Fatal from 26.1, where Paper dropped
      * its remapper and the versioned packages are gone.

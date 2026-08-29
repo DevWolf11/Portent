@@ -75,6 +75,20 @@ public record Finding(
                 callSites);
     }
 
+    /** A type that no longer exists on the target. */
+    public static Finding missingClass(String type, List<CallSite> callSites) {
+        return new Finding(
+                FindingType.MISSING_CLASS,
+                FindingType.MISSING_CLASS.defaultSeverity(),
+                null,
+                type,
+                null,
+                null,
+                type,
+                "the type is gone from the target, so every use of it fails",
+                callSites);
+    }
+
     /** A reference into server internals. */
     public static Finding internals(
             FindingType type,

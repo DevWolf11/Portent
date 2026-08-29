@@ -76,6 +76,24 @@ public final class TextReport {
         for (Finding finding : plugin.findings()) {
             appendFinding(out, finding);
         }
+        // Never let a suppression hide breakage without a trace.
+        if (!plugin.suppressedFindings().isEmpty()) {
+            long errors =
+                    plugin.suppressedFindings().stream()
+                            .filter(f -> f.severity() == Severity.ERROR)
+                            .count();
+            out.append("  - ")
+                    .append(plugin.suppressedFindings().size())
+                    .append(plural(plugin.suppressedFindings().size(), " finding", " findings"))
+                    .append(" suppressed");
+            if (errors > 0) {
+                out.append(" (")
+                        .append(errors)
+                        .append(plural(errors, " error", " errors"))
+                        .append(" among them)");
+            }
+            out.append('\n');
+        }
         for (UnreadableClass unreadable : plugin.unreadableClasses()) {
             out.append("  ! unreadable class ")
                     .append(unreadable.entryName())

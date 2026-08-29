@@ -3,6 +3,7 @@ package dev.portent.scan;
 import dev.portent.Namespaces;
 import dev.portent.index.ApiFlags;
 import dev.portent.index.ApiIndex;
+import dev.portent.index.IndexCoverage;
 import dev.portent.model.CallSite;
 import dev.portent.model.Finding;
 import dev.portent.model.FindingType;
@@ -29,10 +30,12 @@ public final class PluginAnalyser {
     private static final int[] UNMAPPED_FROM = {26, 1};
 
     private final ApiIndex index;
+    private final IndexCoverage coverage;
     private final MemberResolver resolver;
 
     public PluginAnalyser(ApiIndex index) {
         this.index = index;
+        this.coverage = new IndexCoverage(index);
         this.resolver = new MemberResolver(index);
     }
 
@@ -44,6 +47,7 @@ public final class PluginAnalyser {
         private final Map<String, Set<CallSite>> internals = new LinkedHashMap<>();
         private final Map<String, Set<CallSite>> worldPaths = new LinkedHashMap<>();
         private final Map<Integer, Set<CallSite>> classVersions = new LinkedHashMap<>();
+        private final Map<String, Set<CallSite>> missingTypes = new LinkedHashMap<>();
     }
 
     private record SymbolKey(MemberKind kind, String owner, String name, String descriptor) {}
@@ -57,7 +61,18 @@ public final class PluginAnalyser {
      *     already supports them and so are not evidence of anything
      */
     public void accept(Collector collector, ClassScan scan, CallSite classSite, boolean checkClassVersion) {
+        // A type that is gone takes all of its members with it. Reporting the type once says the
+        // same thing as reporting forty absent methods, and says it in a way an admin can act on.
+        for (String apiType : scan.apiTypes()) {
+            if (index.type(apiType) == null && coverage.covers(apiType)) {
+                collector.missingTypes.computeIfAbsent(apiType, k -> new TreeSet<>()).add(classSite);
+            }
+        }
+
         for (SymbolReference reference : scan.references()) {
+            if (collector.missingTypes.containsKey(reference.owner())) {
+                continue;
+            }
             SymbolKey key =
                     new SymbolKey(
                             reference.kind(), reference.owner(), reference.name(), reference.descriptor());
@@ -102,6 +117,9 @@ public final class PluginAnalyser {
     /** Produces the findings, in a stable order, most severe first. */
     public List<Finding> findings(Collector collector) {
         List<Finding> findings = new ArrayList<>();
+
+        collector.missingTypes.forEach(
+                (type, sites) -> findings.add(Finding.missingClass(type, List.copyOf(sites))));
 
         collector.absent.forEach(
                 (key, sites) ->

@@ -19,23 +19,28 @@ public record PluginReport(
         PluginDescriptor descriptor,
         Verdict verdict,
         List<Finding> findings,
+        List<Finding> suppressedFindings,
         List<UnreadableClass> unreadableClasses,
         int classesScanned,
         String skipReason) {
 
     public PluginReport {
         findings = findings == null ? List.of() : List.copyOf(findings);
+        suppressedFindings =
+                suppressedFindings == null ? List.of() : List.copyOf(suppressedFindings);
         unreadableClasses = unreadableClasses == null ? List.of() : List.copyOf(unreadableClasses);
     }
 
     public static PluginReport skipped(String jarFileName, String reason) {
-        return new PluginReport(jarFileName, null, Verdict.SKIPPED, List.of(), List.of(), 0, reason);
+        return new PluginReport(
+                jarFileName, null, Verdict.SKIPPED, List.of(), List.of(), List.of(), 0, reason);
     }
 
     public static PluginReport scanned(
             String jarFileName,
             PluginDescriptor descriptor,
             List<Finding> findings,
+            List<Finding> suppressedFindings,
             List<UnreadableClass> unreadableClasses,
             int classesScanned) {
         Verdict verdict;
@@ -47,7 +52,14 @@ public record PluginReport(
             verdict = Verdict.YELLOW;
         }
         return new PluginReport(
-                jarFileName, descriptor, verdict, findings, unreadableClasses, classesScanned, null);
+                jarFileName,
+                descriptor,
+                verdict,
+                findings,
+                suppressedFindings,
+                unreadableClasses,
+                classesScanned,
+                null);
     }
 
     /** Name and version if we have them, otherwise the file name. */

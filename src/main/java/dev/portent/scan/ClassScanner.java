@@ -42,6 +42,7 @@ public final class ClassScanner {
 
         List<SymbolReference> references = new ArrayList<>();
         Set<String> internals = new LinkedHashSet<>();
+        Set<String> apiTypes = new LinkedHashSet<>();
         List<ClassScan.StringConstant> constants = new ArrayList<>();
 
         // Internals can be reached through the class's own shape, not just its instructions:
@@ -90,7 +91,14 @@ public final class ClassScanner {
                 }
             }
         }
-        return new ClassScan(node.version & 0xFFFF, references, internals, constants);
+        for (SymbolReference reference : references) {
+            apiTypes.add(reference.owner());
+        }
+        noteApiType(apiTypes, node.superName, ownerFilter);
+        if (node.interfaces != null) {
+            node.interfaces.forEach(i -> noteApiType(apiTypes, i, ownerFilter));
+        }
+        return new ClassScan(node.version & 0xFFFF, references, internals, apiTypes, constants);
     }
 
     /**
@@ -144,6 +152,18 @@ public final class ClassScanner {
             return;
         }
         references.add(new SymbolReference(kind, owner, name, descriptor, site));
+    }
+
+    private static void noteApiType(
+            Set<String> apiTypes, String internalName, Predicate<String> ownerFilter) {
+        if (internalName == null || internalName.startsWith("[")) {
+            return;
+        }
+        if (Namespaces.isReportable(internalName)
+                && !Namespaces.isServerInternals(internalName)
+                && ownerFilter.test(internalName)) {
+            apiTypes.add(internalName);
+        }
     }
 
     private static void noteInternals(
