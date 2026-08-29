@@ -69,6 +69,17 @@ class DescriptorParserTest {
     }
 
     @Test
+    void keepsTrailingZeroesInAnUnquotedApiVersion() {
+        // YAML resolves an unquoted 1.20 to the double 1.2. LuckPerms, ViaVersion and Simple Voice
+        // Chat all write api-version unquoted, and 1.20 was one of the most common values in the
+        // wild, so silently reporting "1.2" would be wrong for a large slice of real plugins.
+        assertThat(parse("plugin.yml", "name: X\napi-version: 1.20\n").apiVersion()).isEqualTo("1.20");
+        assertThat(parse("plugin.yml", "name: X\napi-version: 1.10\n").apiVersion()).isEqualTo("1.10");
+        assertThat(parse("plugin.yml", "name: X\napi-version: 1.13\n").apiVersion()).isEqualTo("1.13");
+        assertThat(parse("plugin.yml", "name: X\nversion: 1.20\n").version()).isEqualTo("1.20");
+    }
+
+    @Test
     void survivesAnEmptyDescriptor() {
         PluginDescriptor descriptor = parse("plugin.yml", "");
 

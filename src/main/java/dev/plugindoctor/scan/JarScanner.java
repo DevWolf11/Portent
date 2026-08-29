@@ -10,7 +10,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,27 +50,37 @@ public final class JarScanner {
     }
 
     private PluginReport scanClasses(String fileName, ZipFile zip, PluginDescriptor descriptor) {
-        Set<String> ownTypes = ownTypes(zip);
+        ArchiveWalker.Contents contents = ArchiveWalker.collect(zip);
+
+        // Bukkit-named classes the plugin ships itself are present at runtime, so a reference to
+        // one says nothing about the server version.
+        Set<String> ownTypes = new HashSet<>();
+        for (ArchiveWalker.ClassEntry entry : contents.classes()) {
+            ownTypes.add(entry.internalName());
+        }
+
         List<SymbolReference> references = new ArrayList<>();
-        List<UnreadableClass> unreadable = new ArrayList<>();
+        List<UnreadableClass> unreadable = new ArrayList<>(contents.unreadable());
         int classesScanned = 0;
 
-        Enumeration<? extends ZipEntry> entries = zip.entries();
-        while (entries.hasMoreElements()) {
-            ZipEntry entry = entries.nextElement();
-            if (!isClassEntry(entry)) {
-                continue;
-            }
-            try (InputStream in = zip.getInputStream(entry)) {
-                references.addAll(ReferenceCollector.collect(in, owner -> !ownTypes.contains(owner)));
+        for (ArchiveWalker.ClassEntry entry : contents.classes()) {
+            try {
+                references.addAll(
+                        ReferenceCollector.collect(
+                                entry.bytes(), entry.archive(), owner -> !ownTypes.contains(owner)));
                 classesScanned++;
-            } catch (IOException | RuntimeException e) {
+            } catch (RuntimeException e) {
                 // A malformed class is the plugin's problem, not a reason to abandon the jar.
-                unreadable.add(new UnreadableClass(entry.getName(), message(e)));
+                unreadable.add(new UnreadableClass(label(entry), message(e)));
             }
         }
         return PluginReport.scanned(
                 fileName, descriptor, findings(references), unreadable, classesScanned);
+    }
+
+    private static String label(ArchiveWalker.ClassEntry entry) {
+        String name = entry.internalName() + ".class";
+        return entry.archive() == null ? name : entry.archive() + "!" + name;
     }
 
     /** Group every absent reference into one finding per symbol, carrying all its call sites. */
@@ -131,30 +140,6 @@ public final class JarScanner {
         } catch (IOException | RuntimeException e) {
             return null;
         }
-    }
-
-    /** Internal names of classes the jar ships itself, so shaded Bukkit-named types are ignored. */
-    private static Set<String> ownTypes(ZipFile zip) {
-        Set<String> names = new HashSet<>();
-        Enumeration<? extends ZipEntry> entries = zip.entries();
-        while (entries.hasMoreElements()) {
-            ZipEntry entry = entries.nextElement();
-            if (isClassEntry(entry)) {
-                String name = entry.getName();
-                names.add(name.substring(0, name.length() - ".class".length()));
-            }
-        }
-        return names;
-    }
-
-    private static boolean isClassEntry(ZipEntry entry) {
-        if (entry.isDirectory()) {
-            return false;
-        }
-        String name = entry.getName();
-        return name.endsWith(".class")
-                && !name.endsWith("module-info.class")
-                && !name.endsWith("package-info.class");
     }
 
     private static String message(Exception e) {

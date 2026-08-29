@@ -6,9 +6,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.SafeConstructor;
+import org.yaml.snakeyaml.representer.Representer;
+import org.yaml.snakeyaml.resolver.Resolver;
 
 /**
  * Parses {@code plugin.yml} / {@code paper-plugin.yml}.
@@ -26,7 +29,15 @@ public final class DescriptorParser {
     public static PluginDescriptor parse(String descriptorFile, InputStream in) {
         LoaderOptions options = new LoaderOptions();
         options.setAllowDuplicateKeys(true);
-        Object loaded = new Yaml(new SafeConstructor(options)).load(in);
+        DumperOptions dumper = new DumperOptions();
+        Yaml yaml =
+                new Yaml(
+                        new SafeConstructor(options),
+                        new Representer(dumper),
+                        dumper,
+                        options,
+                        new StringResolver());
+        Object loaded = yaml.load(in);
         Map<?, ?> root = loaded instanceof Map<?, ?> map ? map : Map.of();
 
         List<String> depend = new ArrayList<>(strings(root.get("depend")));
@@ -70,9 +81,25 @@ public final class DescriptorParser {
     /** Paper defaults {@code required} to true when the key is absent. */
     private static boolean isRequired(Object spec) {
         if (spec instanceof Map<?, ?> map && map.containsKey("required")) {
-            return !Boolean.FALSE.equals(map.get("required"));
+            Object required = map.get("required");
+            return !(Boolean.FALSE.equals(required) || "false".equalsIgnoreCase(String.valueOf(required)));
         }
         return true;
+    }
+
+    /**
+     * Treats every scalar as a string.
+     *
+     * <p>YAML resolves an unquoted {@code api-version: 1.20} to the double 1.2, silently dropping
+     * the trailing zero and reporting the plugin as targeting 1.2. Real plugins write it unquoted —
+     * LuckPerms, ViaVersion and Simple Voice Chat all do — so the number must never be resolved in
+     * the first place. plugin.yml is a config file whose values are strings to Bukkit too.
+     */
+    private static final class StringResolver extends Resolver {
+        @Override
+        protected void addImplicitResolvers() {
+            // Deliberately none.
+        }
     }
 
     private static List<String> dedupe(List<String> values) {

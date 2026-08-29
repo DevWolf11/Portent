@@ -3,6 +3,7 @@ package dev.plugindoctor.fixtures;
 import java.util.List;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Handle;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
@@ -206,6 +207,42 @@ public final class Bytecode {
                 reference.descriptor(),
                 reference.opcode() == Opcodes.INVOKEINTERFACE);
         pop(mv, Type.getReturnType(reference.descriptor()));
+    }
+
+    /**
+     * A class whose {@code run()V} body captures a method reference (an invokedynamic whose target
+     * lives in a bootstrap argument), the way {@code list.forEach(Player::sendMessage)} compiles.
+     */
+    public static byte[] pluginClassWithMethodReference(
+            String internalName, String owner, String name, String descriptor) {
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        writer.visit(V, Opcodes.ACC_PUBLIC, internalName, null, "java/lang/Object", null);
+        MethodVisitor mv = writer.visitMethod(Opcodes.ACC_PUBLIC, "run", "()V", null, null);
+        mv.visitCode();
+        Handle bootstrap =
+                new Handle(
+                        Opcodes.H_INVOKESTATIC,
+                        "java/lang/invoke/LambdaMetafactory",
+                        "metafactory",
+                        "(Ljava/lang/invoke/MethodHandles$Lookup;Ljava/lang/String;"
+                                + "Ljava/lang/invoke/MethodType;Ljava/lang/invoke/MethodType;"
+                                + "Ljava/lang/invoke/MethodHandle;Ljava/lang/invoke/MethodType;)"
+                                + "Ljava/lang/invoke/CallSite;",
+                        false);
+        Handle target = new Handle(Opcodes.H_INVOKEINTERFACE, owner, name, descriptor, true);
+        mv.visitInvokeDynamicInsn(
+                "accept",
+                "()Ljava/util/function/Consumer;",
+                bootstrap,
+                Type.getType("(Ljava/lang/Object;)V"),
+                target,
+                Type.getType("(L" + owner + ";)V"));
+        mv.visitInsn(Opcodes.POP);
+        mv.visitInsn(Opcodes.RETURN);
+        mv.visitMaxs(0, 0);
+        mv.visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
     }
 
     private static void push(MethodVisitor mv, Type type) {

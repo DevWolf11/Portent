@@ -106,6 +106,19 @@ public final class FixtureJars {
         return jar;
     }
 
+    /** Builds a jar's bytes in memory, for embedding one jar inside another. */
+    public static byte[] jarBytes(Map<String, byte[]> entries) throws IOException {
+        var out = new java.io.ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(out)) {
+            for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
+                zip.putNextEntry(new ZipEntry(entry.getKey()));
+                zip.write(entry.getValue());
+                zip.closeEntry();
+            }
+        }
+        return out.toByteArray();
+    }
+
     /** Arbitrary entries, for cases like a corrupt class file. */
     public static Path rawJar(Path directory, String fileName, Map<String, byte[]> entries)
             throws IOException {

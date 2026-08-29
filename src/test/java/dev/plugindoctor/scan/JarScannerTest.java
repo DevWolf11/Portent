@@ -90,7 +90,7 @@ class JarScannerTest {
         assertThat(finding.descriptor()).isEqualTo("(Ljava/lang/String;)V");
         assertThat(finding.callSites())
                 .containsExactly(
-                        new CallSite(
+                        CallSite.of(
                                 "com/example/broken/Nick", "applyNickname", "(Ljava/lang/String;)V"));
     }
 
