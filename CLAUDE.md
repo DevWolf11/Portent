@@ -16,13 +16,29 @@ index. Output: a per-plugin verdict with evidence.
 `Class.forName`, no reflection on them. These are untrusted third-party jars. ASM
 parsing only, always.
 
-**No network in library or test code.** Index generation takes a local jar path. If a
-convenience `fetch` command is ever added, it lives in its own class and no test touches it.
+**Network lives only in `dev.portent.fetch`.** Everything else -- indexing, scanning,
+resolution, reporting -- takes local paths and must work with the network unplugged. `fetch`
+downloads API jars from Maven so an admin does not have to assemble them by hand, and it is the
+only package permitted to open a socket. No test hits the network: the fetch package is tested
+against a local repository laid out on disk. `./gradlew test` passes offline, always.
+
+Downloaded artifacts are untrusted input. Verify the SHA-1 Maven publishes beside every artifact,
+cache by coordinate so a second run needs no network, and never execute what was downloaded --
+a fetched jar is read with ASM exactly like a scanned one.
 
 **Only report symbols in Bukkit/Paper namespaces**: `org/bukkit/`, `io/papermc/`,
 `com/destroystokyo/`, `org/spigotmc/`, `net/md_5/bungee/`. Everything else is a shaded
 dependency or an optional soft-dep and must be ignored. False positives destroy this
 tool's entire value proposition.
+
+Two refinements learned from real jars. Types outside those namespaces may still be *indexed*
+when they complete a hierarchy -- paper-api leaves Adventure to Maven, and without it 16.5% of
+the API has a supertype the resolver cannot see. Indexing them is not reporting them. And
+`net/minecraft/` and `org/bukkit/craftbukkit/` are matched by package name for the NMS findings
+only; we hold no index of internals, so a finding never claims one of their members is missing.
+
+**Never claim a type is gone from a package the index does not cover.** If the index holds no
+`net/kyori` types, it knows nothing about them.
 
 **Every finding carries evidence**: referenced owner + method name + descriptor, plus the
 class and method inside the plugin that references it. Never emit "may be incompatible"
