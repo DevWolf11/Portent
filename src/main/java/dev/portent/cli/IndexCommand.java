@@ -5,6 +5,7 @@ import dev.portent.index.IndexBuilder;
 import dev.portent.index.IndexIo;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.Callable;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -16,8 +17,12 @@ public final class IndexCommand implements Callable<Integer> {
             names = "--api-jar",
             required = true,
             paramLabel = "<paper-api.jar>",
-            description = "Local API jar to index. Never downloaded - point this at a file you have.")
-    Path apiJar;
+            description =
+                    "Local API jar to index. Never downloaded - point this at a file you have."
+                            + " Repeat it to add jars that complete the API's type hierarchies,"
+                            + " such as Adventure, which paper-api depends on but does not bundle."
+                            + " The first jar is the API proper.")
+    List<Path> apiJars;
 
     @Option(names = "--out", required = true, paramLabel = "<index.json>",
             description = "Where to write the index.")
@@ -43,7 +48,7 @@ public final class IndexCommand implements Callable<Integer> {
     public Integer call() throws Exception {
         ApiIndex index;
         try {
-            index = IndexBuilder.fromJar(apiJar, minecraftVersion, javaVersion);
+            index = IndexBuilder.fromJars(apiJars, minecraftVersion, javaVersion);
         } catch (IOException e) {
             System.err.println("portent: " + e.getMessage());
             return ExitCode.USAGE;
@@ -51,7 +56,7 @@ public final class IndexCommand implements Callable<Integer> {
         IndexIo.write(index, out);
 
         System.out.printf(
-                "Indexed %d types from %s -> %s%n", index.typeCount(), apiJar.getFileName(), out);
+                "Indexed %d types from %d jar(s) -> %s%n", index.typeCount(), apiJars.size(), out);
         System.out.printf(
                 "Target: %s, Java %s%n",
                 index.minecraftVersion() == null ? "unknown" : index.minecraftVersion(),

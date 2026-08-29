@@ -38,44 +38,71 @@ public final class IndexBuilder {
         return fromJar(apiJar, null, 0);
     }
 
+    public static ApiIndex fromJar(Path apiJar, String minecraftVersion, int javaVersion)
+            throws IOException {
+        return fromJars(List.of(apiJar), minecraftVersion, javaVersion);
+    }
+
     /**
+     * Builds an index from the API jar plus any jars needed to complete its type hierarchies.
+     *
+     * <p>paper-api declares Adventure as a Maven dependency rather than bundling it, so on its own
+     * 16.5% of its types -- everything implementing {@code Audience}, {@code Translatable} or
+     * {@code Keyed} -- has a supertype the index cannot see. The walk then answers UNKNOWN for
+     * members it should have called missing. Passing the supporting jars closes that gap.
+     *
+     * <p>Only the first jar is treated as the API proper: its Maven metadata names the target
+     * version and its class files fix the Java release. The rest contribute types only. Which
+     * symbols are worth reporting is still decided by namespace, so adding a supporting jar never
+     * introduces findings about the library itself.
+     *
      * @param minecraftVersion overrides the version read from the jar's Maven metadata; may be null
      * @param javaVersion overrides the release inferred from class file versions; 0 to infer
      */
-    public static ApiIndex fromJar(Path apiJar, String minecraftVersion, int javaVersion)
+    public static ApiIndex fromJars(List<Path> jars, String minecraftVersion, int javaVersion)
             throws IOException {
-        JarCheck.require(apiJar);
-
+        if (jars == null || jars.isEmpty()) {
+            throw new IOException("no API jar given");
+        }
         Map<String, TypeInfo> types = new TreeMap<>();
-        int highestMajor = 0;
+        int primaryMajor = 0;
         String mavenVersion = null;
 
-        try (ZipFile zip = new ZipFile(apiJar.toFile())) {
-            Enumeration<? extends ZipEntry> entries = zip.entries();
-            while (entries.hasMoreElements()) {
-                ZipEntry entry = entries.nextElement();
-                if (isPomProperties(entry)) {
-                    try (InputStream in = zip.getInputStream(entry)) {
-                        mavenVersion = readMavenVersion(in);
+        for (int i = 0; i < jars.size(); i++) {
+            Path jar = jars.get(i);
+            boolean primary = i == 0;
+            JarCheck.require(jar);
+
+            try (ZipFile zip = new ZipFile(jar.toFile())) {
+                Enumeration<? extends ZipEntry> entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    if (primary && isPomProperties(entry)) {
+                        try (InputStream in = zip.getInputStream(entry)) {
+                            mavenVersion = readMavenVersion(in);
+                        }
+                        continue;
                     }
-                    continue;
-                }
-                if (!isClassEntry(entry)) {
-                    continue;
-                }
-                try (InputStream in = zip.getInputStream(entry)) {
-                    ClassNode node = read(in);
-                    types.put(node.name, describe(node));
-                    highestMajor = Math.max(highestMajor, node.version & 0xFFFF);
+                    if (!isClassEntry(entry)) {
+                        continue;
+                    }
+                    try (InputStream in = zip.getInputStream(entry)) {
+                        ClassNode node = read(in);
+                        // The API jar wins if a supporting jar happens to ship the same type.
+                        types.merge(node.name, describe(node), (existing, added) -> existing);
+                        if (primary) {
+                            primaryMajor = Math.max(primaryMajor, node.version & 0xFFFF);
+                        }
+                    }
                 }
             }
         }
 
         String resolvedVersion = minecraftVersion != null ? minecraftVersion : mavenVersion;
-        int resolvedJava = javaVersion > 0 ? javaVersion : releaseOf(highestMajor);
+        int resolvedJava = javaVersion > 0 ? javaVersion : releaseOf(primaryMajor);
         return new ApiIndex(
                 ApiIndex.CURRENT_FORMAT_VERSION,
-                apiJar.getFileName().toString(),
+                jars.getFirst().getFileName().toString(),
                 resolvedVersion,
                 resolvedJava,
                 types);

@@ -2,6 +2,7 @@ package dev.portent.report;
 
 import dev.portent.model.CallSite;
 import dev.portent.model.Finding;
+import dev.portent.model.FindingType;
 import dev.portent.model.PluginReport;
 import dev.portent.model.ScanReport;
 import dev.portent.model.Severity;
@@ -51,6 +52,7 @@ public final class TextReport {
             appendPlugin(out, plugin);
         }
         appendSummary(out, report);
+        appendLoadingNote(out, report);
         return out.toString();
     }
 
@@ -129,6 +131,29 @@ public final class TextReport {
             out.append("; ").append(skipped).append(plural(skipped, " jar skipped", " jars skipped"));
         }
         out.append('\n');
+    }
+
+    /**
+     * Static analysis sees the reference; it cannot see whether the code runs. Plugins that support
+     * several server versions keep dead references to old API behind runtime version checks, and
+     * the class holding one is never loaded on a server where the check fails. Saying so once is
+     * more honest than either suppressing the finding or letting it read as certain breakage.
+     */
+    private static void appendLoadingNote(StringBuilder out, ScanReport report) {
+        boolean anyMissing =
+                report.plugins().stream()
+                        .flatMap(p -> p.findings().stream())
+                        .anyMatch(
+                                f ->
+                                        f.type() == FindingType.MISSING_METHOD
+                                                || f.type() == FindingType.MISSING_FIELD);
+        if (anyMissing) {
+            out.append(
+                    "\nNote: a missing member throws only when the class holding the reference is\n"
+                            + "      loaded. A plugin that supports several server versions may keep\n"
+                            + "      such references behind a version check and never reach them.\n"
+                            + "      Check whether the named class runs on your target.\n");
+        }
     }
 
     private static String plural(long count, String one, String many) {
