@@ -5,7 +5,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import dev.portent.fixtures.Bytecode;
+import dev.portent.fixtures.FixtureJars;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,6 +41,17 @@ class ApiResolverTest {
         assertThat(result.resolved().stream().map(p -> p.getFileName().toString()))
                 .contains("adventure-api-5.2.0.jar", "adventure-key-5.2.0.jar");
         assertThat(result.unresolved()).isEmpty();
+    }
+
+    @Test
+    void fetchesNothingItDoesNotNeed() throws IOException {
+        // Against the real paper-api this once fetched 32 jars and 19,080 types -- all of Guava,
+        // Maven's resolver, JUnit, AssertJ -- because it walked the whole compile closure. A jar
+        // is only worth having if it defines a supertype the API's own types inherit from.
+        ApiResolver.Result result = resolve();
+
+        assertThat(result.resolved().stream().map(p -> p.getFileName().toString()))
+                .noneMatch(name -> name.startsWith("guava") || name.startsWith("unrelated"));
     }
 
     @Test
@@ -95,7 +109,15 @@ class ApiResolverTest {
     private LocalRepository repository() throws IOException {
         LocalRepository repo = new LocalRepository(tempDir.resolve("repo"));
 
-        repo.publish(PAPER, "jar", bytes("paper"));
+        repo.publish(
+                PAPER,
+                "jar",
+                FixtureJars.jarBytes(
+                        Map.of(
+                                "org/bukkit/entity/Player.class",
+                                Bytecode.apiInterface(
+                                        "org/bukkit/entity/Player",
+                                        List.of("net/kyori/adventure/audience/Audience")))));
         repo.publishPom(
                 PAPER,
                 pom(
@@ -143,7 +165,15 @@ class ApiResolverTest {
                         </dependencyManagement>
                         """));
 
-        repo.publish(ADVENTURE, "jar", bytes("adventure"));
+        repo.publish(
+                ADVENTURE,
+                "jar",
+                FixtureJars.jarBytes(
+                        Map.of(
+                                "net/kyori/adventure/audience/Audience.class",
+                                Bytecode.apiInterface(
+                                        "net/kyori/adventure/audience/Audience",
+                                        List.of("net/kyori/adventure/key/Keyed")))));
         repo.publishPom(
                 ADVENTURE,
                 pom(
@@ -157,8 +187,13 @@ class ApiResolverTest {
                         </dependencies>
                         """));
 
-        repo.publish(KEY, "jar", bytes("key"));
+        repo.publish(KEY, "jar", classJar("net/kyori/adventure/key/Keyed"));
         repo.publishPom(KEY, pom(KEY, ""));
+
+        // A perfectly ordinary compile dependency that defines nothing paper-api inherits from.
+        MavenCoordinate unrelated = new MavenCoordinate("com.google.guava", "guava", "33.0.0");
+        repo.publish(unrelated, "jar", classJar("com/google/common/collect/ImmutableList"));
+        repo.publishPom(unrelated, pom(unrelated, ""));
         return repo;
     }
 
@@ -176,5 +211,11 @@ class ApiResolverTest {
 
     private static byte[] bytes(String text) {
         return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** A jar defining one class, so the resolver can tell whether it closes a gap. */
+    private static byte[] classJar(String internalName) throws IOException {
+        return FixtureJars.jarBytes(
+                Map.of(internalName + ".class", Bytecode.apiInterface(internalName, List.of())));
     }
 }

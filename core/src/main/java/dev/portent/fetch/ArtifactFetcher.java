@@ -55,6 +55,26 @@ public final class ArtifactFetcher {
     }
 
     /**
+     * Fetches an artifact's {@code maven-metadata.xml}, used to list what versions exist. Cached
+     * like anything else, but under the artifact directory rather than a version directory.
+     */
+    public Path fetchMetadata(String artifactPath) throws IOException {
+        if (offline) {
+            return null;
+        }
+        for (MavenRepository repository : repositories) {
+            byte[] bytes = transport.get(repository.urlFor(artifactPath + "/maven-metadata.xml"));
+            if (bytes != null) {
+                Path path = cache.root().resolve(artifactPath).resolve("maven-metadata.xml");
+                java.nio.file.Files.createDirectories(path.getParent());
+                java.nio.file.Files.write(path, bytes);
+                return path;
+            }
+        }
+        return null;
+    }
+
+    /**
      * SNAPSHOT versions do not name a file directly; the repository's metadata says which
      * timestamped build is current.
      */

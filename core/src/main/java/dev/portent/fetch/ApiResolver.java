@@ -2,6 +2,7 @@ package dev.portent.fetch;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -58,65 +59,133 @@ public final class ApiResolver {
                 }
             }
         }
-        throw new IOException(
-                "could not find "
-                        + PAPER_ARTIFACT
-                        + " for Minecraft "
-                        + minecraftVersion
-                        + ". Check the version, or pass --api-jar to index a jar you already have.");
+        // Naming versions that do exist beats telling someone their version does not.
+        List<String> available = publishedVersions();
+        StringBuilder message = new StringBuilder();
+        message.append("could not find ")
+                .append(PAPER_ARTIFACT)
+                .append(" for Minecraft ")
+                .append(minecraftVersion)
+                .append(".");
+        if (!available.isEmpty()) {
+            message.append(" Recently published: ").append(String.join(", ", available)).append(".");
+        }
+        message.append(
+                " Experimental and pre-release builds are often not published to Maven at all;"
+                        + " for those, download the API jar and pass it with --api-jar.");
+        throw new IOException(message.toString());
     }
 
-    /** Walks the POM graph from an already-fetched API artifact. */
+    /** The most recent versions the repository lists, newest last. Empty if it cannot be read. */
+    private List<String> publishedVersions() {
+        for (String group : PAPER_GROUPS) {
+            try {
+                Path metadata =
+                        fetcher.fetchMetadata(group.replace('.', '/') + "/" + PAPER_ARTIFACT);
+                if (metadata == null) {
+                    continue;
+                }
+                String xml = Files.readString(metadata, StandardCharsets.UTF_8);
+                List<String> versions = new ArrayList<>();
+                for (String block : Xml.blocks(xml, "versions")) {
+                    for (String version : Xml.blocks(block, "version")) {
+                        String trimmed = version.trim();
+                        if (!trimmed.isEmpty()) {
+                            versions.add(trimmed);
+                        }
+                    }
+                }
+                if (!versions.isEmpty()) {
+                    return versions.subList(Math.max(0, versions.size() - 6), versions.size());
+                }
+            } catch (IOException | RuntimeException e) {
+                // Best effort: a better message is not worth failing over.
+            }
+        }
+        return List.of();
+    }
+    /**
+     * Adds jars until the API's type hierarchies are complete, and no further.
+     *
+     * <p>The obvious approach -- resolve the POM graph and fetch everything on the compile
+     * classpath -- pulls in the world. Against paper-api 1.21.4 it fetched 32 jars and 19,080
+     * types: all of Guava, Maven's resolver, even JUnit and AssertJ, because a scope declared two
+     * POMs away is easy to get wrong and a correct answer would still include Guava.
+     *
+     * <p>None of that helps. A jar is only worth having if it defines a supertype that paper-api's
+     * own types inherit from and the index cannot otherwise see. So each candidate is fetched,
+     * checked against the outstanding gaps, and kept only if it closes one; the walk descends only
+     * through jars that were kept, and stops as soon as nothing is missing.
+     */
     private Result resolveFrom(MavenCoordinate api, Path apiJar) throws IOException {
         List<Path> jars = new ArrayList<>();
         jars.add(apiJar);
         List<String> unresolved = new ArrayList<>();
 
-        Set<String> seen = new HashSet<>();
-        seen.add(api.versionlessId());
-        Deque<Step> queue = new ArrayDeque<>();
-        queue.add(new Step(api, 0));
+        Set<String> missing = Supertypes.unresolvedIn(jars);
+        Set<String> visited = new HashSet<>();
+        visited.add(api.versionlessId());
 
-        while (!queue.isEmpty()) {
-            Step step = queue.removeFirst();
+        Deque<Step> frontier = new ArrayDeque<>();
+        frontier.add(new Step(api, 0));
+
+        while (!frontier.isEmpty() && !missing.isEmpty()) {
+            Step step = frontier.removeFirst();
             if (step.depth() >= MAX_DEPTH) {
                 continue;
             }
-            Pom pom = readPom(step.coordinate());
-            if (pom == null) {
-                continue;
-            }
-            Map<String, String> properties = propertiesOf(pom);
-            Map<String, String> managed = managedVersions(pom, properties);
-
-            for (Pom.Dependency dependency : pom.dependencies()) {
-                if (!dependency.isOnConsumerClasspath()) {
-                    continue;
+            for (MavenCoordinate candidate : dependenciesOf(step.coordinate(), visited, unresolved)) {
+                if (missing.isEmpty()) {
+                    break;
                 }
-                String key = dependency.groupId() + ":" + dependency.artifactId();
-                if (!seen.add(key)) {
-                    continue;
-                }
-                String version =
-                        substitute(
-                                dependency.version() != null ? dependency.version() : managed.get(key),
-                                properties);
-                if (version == null || version.contains("${")) {
-                    unresolved.add(key + " (no resolvable version)");
-                    continue;
-                }
-                MavenCoordinate coordinate =
-                        new MavenCoordinate(dependency.groupId(), dependency.artifactId(), version);
-                Path jar = fetcher.fetch(coordinate, "jar");
+                Path jar = fetcher.fetch(candidate, "jar");
                 if (jar == null) {
-                    unresolved.add(coordinate.toString());
+                    unresolved.add(candidate.toString());
+                    continue;
+                }
+                if (!Supertypes.definesAnyOf(jar, missing)) {
+                    // Fetched, inspected, not needed. Its own dependencies cannot be needed either.
                     continue;
                 }
                 jars.add(jar);
-                queue.add(new Step(coordinate, step.depth() + 1));
+                missing = Supertypes.unresolvedIn(jars);
+                frontier.add(new Step(candidate, step.depth() + 1));
             }
         }
         return new Result(List.copyOf(jars), List.copyOf(unresolved), api);
+    }
+
+    /** The consumer-classpath dependencies of one artifact, with versions resolved. */
+    private List<MavenCoordinate> dependenciesOf(
+            MavenCoordinate coordinate, Set<String> visited, List<String> unresolved)
+            throws IOException {
+        Pom pom = readPom(coordinate);
+        if (pom == null) {
+            return List.of();
+        }
+        Map<String, String> properties = propertiesOf(pom);
+        Map<String, String> managed = managedVersions(pom, properties);
+
+        List<MavenCoordinate> found = new ArrayList<>();
+        for (Pom.Dependency dependency : pom.dependencies()) {
+            if (!dependency.isOnConsumerClasspath()) {
+                continue;
+            }
+            String key = dependency.groupId() + ":" + dependency.artifactId();
+            if (!visited.add(key)) {
+                continue;
+            }
+            String version =
+                    substitute(
+                            dependency.version() != null ? dependency.version() : managed.get(key),
+                            properties);
+            if (version == null || version.contains("${")) {
+                unresolved.add(key + " (no resolvable version)");
+                continue;
+            }
+            found.add(new MavenCoordinate(dependency.groupId(), dependency.artifactId(), version));
+        }
+        return found;
     }
 
     /** Properties from this POM and its parents, nearest first. */

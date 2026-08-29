@@ -12,4 +12,6 @@ dependencies {
 
     // Fixture jars are synthesised with ASM at test time; nothing binary is ever checked in.
     testFixturesApi("org.ow2.asm:asm:9.9")
+
+    testImplementation(testFixtures(project(":core")))
 }
